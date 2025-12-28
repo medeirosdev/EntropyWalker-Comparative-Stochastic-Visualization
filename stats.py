@@ -1,61 +1,97 @@
 """
 Statistics Tracker for EntropyWalker
-====================================
+=====================================
 
-Provides real-time metrics and heatmap tracking for random walk analysis.
+This module provides real-time metrics and heatmap tracking for random walk
+analysis. It calculates statistical measures to compare the quality of
+different random number generators.
+
+Metrics tracked:
+    - Dispersion (average distance from origin)
+    - Entropy (Shannon entropy of direction sequence)
+    - Return rate (percentage of moves returning to origin)
+    - Direction distribution (histogram of UP/DOWN/LEFT/RIGHT)
+    - Heatmap (2D grid of visit frequency)
 """
 
 import math
 from typing import Tuple, List, Dict
 from collections import Counter
 
+
 class StatsTracker:
     """
-    Tracks statistics and generates heatmap data for a group of random walkers.
+    Tracks statistics and generates heatmap data for random walk analysis.
+    
+    This class accumulates move data from multiple walkers and provides
+    methods to calculate various statistical metrics useful for comparing
+    random number generator quality.
+    
+    Attributes:
+        origin: Starting point (x, y) for distance calculations.
+        cell_size: Size of each heatmap cell in pixels.
+        grid_width: Number of horizontal cells in heatmap.
+        grid_height: Number of vertical cells in heatmap.
+        heatmap: 2D grid storing visit counts per cell.
+        direction_counts: Counter for each direction.
+        total_moves: Total number of recorded moves.
     """
 
     def __init__(self, origin: Tuple[int, int], width: int, height: int, cell_size: int = 10):
+        """
+        Initialize the statistics tracker.
+        
+        Args:
+            origin: Starting point (x, y) for distance calculations.
+            width: Total tracking width in pixels.
+            height: Total tracking height in pixels.
+            cell_size: Size of each heatmap cell in pixels.
+        """
         self.origin = origin
         self.cell_size = cell_size
         self.grid_width = width // cell_size
         self.grid_height = height // cell_size
         
-        # Heatmap grid (visit counts)
+        # Heatmap: 2D grid storing visit count per cell
         self.heatmap: List[List[int]] = [[0] * self.grid_width for _ in range(self.grid_height)]
         
-        # Direction history for entropy (0=UP, 1=DOWN, 2=LEFT, 3=RIGHT)
+        # Direction tracking for entropy calculation
+        # Stored as integers: 0=UP, 1=DOWN, 2=LEFT, 3=RIGHT
         self.direction_history: List[int] = []
-        self.max_history = 1000
+        self.max_history = 1000  # Rolling window for entropy
         
-        # Direction counts for histogram
+        # Direction counts for histogram visualization
         self.direction_counts: Dict[str, int] = {'UP': 0, 'DOWN': 0, 'LEFT': 0, 'RIGHT': 0}
         
-        # Distance history for distribution graph
+        # Distance history for distribution graphs
         self.distance_history: List[float] = []
         self.max_distance_history = 500
         
         # Return to origin tracking
         self.return_count: int = 0
-        self.return_threshold: int = 15
+        self.return_threshold: int = 15  # Pixels within origin to count as "returned"
         
-        # Total moves
+        # Aggregate statistics
         self.total_moves: int = 0
-        
-        # Distance tracking
         self.distance_sum: float = 0.0
 
     def record_move(self, x: int, y: int, direction: str) -> None:
-        """Record a walker's move."""
+        """
+        Record a single walker move for statistical analysis.
+        
+        Args:
+            x: New x-coordinate after move.
+            y: New y-coordinate after move.
+            direction: Direction taken ('UP', 'DOWN', 'LEFT', 'RIGHT').
+        """
         self.total_moves += 1
         
-        # Update heatmap
-        cell_x = min(x // self.cell_size, self.grid_width - 1)
-        cell_y = min(y // self.cell_size, self.grid_height - 1)
-        cell_x = max(0, cell_x)
-        cell_y = max(0, cell_y)
+        # Update heatmap cell (clamp to grid bounds)
+        cell_x = max(0, min(x // self.cell_size, self.grid_width - 1))
+        cell_y = max(0, min(y // self.cell_size, self.grid_height - 1))
         self.heatmap[cell_y][cell_x] += 1
         
-        # Record direction for entropy
+        # Record direction for entropy calculation
         dir_map = {'UP': 0, 'DOWN': 1, 'LEFT': 2, 'RIGHT': 3}
         self.direction_history.append(dir_map.get(direction, 0))
         if len(self.direction_history) > self.max_history:
@@ -65,35 +101,56 @@ class StatsTracker:
         if direction in self.direction_counts:
             self.direction_counts[direction] += 1
         
-        # Calculate distance
+        # Calculate Euclidean distance from origin
         dist_to_origin = math.sqrt((x - self.origin[0])**2 + (y - self.origin[1])**2)
         
-        # Record distance history
+        # Record distance for distribution graph
         self.distance_history.append(dist_to_origin)
         if len(self.distance_history) > self.max_distance_history:
             self.distance_history.pop(0)
         
-        # Check return to origin
+        # Check if walker returned to origin area
         if dist_to_origin <= self.return_threshold:
             self.return_count += 1
         
-        # Accumulate distance for average
+        # Accumulate for average distance calculation
         self.distance_sum += dist_to_origin
 
     def get_dispersao(self) -> float:
-        """Calculate average distance from origin (Dispersão)."""
+        """
+        Calculate average distance from origin (Dispersion).
+        
+        Higher values indicate walkers spread further from center.
+        
+        Returns:
+            Average Euclidean distance from origin in pixels.
+        """
         if self.total_moves == 0:
             return 0.0
         return self.distance_sum / self.total_moves
 
     def get_retorno_rate(self) -> float:
-        """Calculate return to origin rate (percentage)."""
+        """
+        Calculate return to origin rate.
+        
+        Returns:
+            Percentage of moves where walker was within threshold of origin.
+        """
         if self.total_moves == 0:
             return 0.0
         return (self.return_count / self.total_moves) * 100
 
     def get_entropia(self) -> float:
-        """Calculate Shannon entropy of direction sequence."""
+        """
+        Calculate Shannon entropy of direction sequence.
+        
+        Entropy measures unpredictability of the direction sequence.
+        For 4 equally-likely directions, maximum entropy is log2(4) = 2.0.
+        Higher entropy indicates better randomness.
+        
+        Returns:
+            Shannon entropy value (0.0 to 2.0).
+        """
         if len(self.direction_history) < 10:
             return 0.0
         
@@ -109,14 +166,26 @@ class StatsTracker:
         return entropy
 
     def get_direction_distribution(self) -> Dict[str, float]:
-        """Get direction distribution as percentages."""
+        """
+        Calculate direction distribution as percentages.
+        
+        Ideal distribution for unbiased RNG: 25% each direction.
+        
+        Returns:
+            Dictionary mapping direction to percentage.
+        """
         total = sum(self.direction_counts.values())
         if total == 0:
             return {'UP': 25.0, 'DOWN': 25.0, 'LEFT': 25.0, 'RIGHT': 25.0}
         return {k: (v / total) * 100 for k, v in self.direction_counts.items()}
 
     def get_max_heat(self) -> int:
-        """Get maximum heat value for normalization."""
+        """
+        Get maximum heat value for heatmap normalization.
+        
+        Returns:
+            Maximum visit count across all cells.
+        """
         max_heat = 0
         for row in self.heatmap:
             row_max = max(row) if row else 0
@@ -125,7 +194,12 @@ class StatsTracker:
         return max_heat if max_heat > 0 else 1
 
     def get_stats_dict(self) -> Dict[str, float]:
-        """Get all stats as a dictionary."""
+        """
+        Get all statistics as a dictionary for display.
+        
+        Returns:
+            Dictionary with all computed metrics.
+        """
         return {
             'dispersao': self.get_dispersao(),
             'retorno_rate': self.get_retorno_rate(),
@@ -135,7 +209,7 @@ class StatsTracker:
         }
 
     def reset(self) -> None:
-        """Reset all statistics."""
+        """Reset all statistics to initial state."""
         self.heatmap = [[0] * self.grid_width for _ in range(self.grid_height)]
         self.direction_history = []
         self.direction_counts = {'UP': 0, 'DOWN': 0, 'LEFT': 0, 'RIGHT': 0}
@@ -143,4 +217,5 @@ class StatsTracker:
         self.return_count = 0
         self.total_moves = 0
         self.distance_sum = 0.0
+
 
